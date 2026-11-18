@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f6f7f9">
+	<meta name="description" content="The Clean Divorce FAQ assistant prototype.">
+	<title>The Clean Divorce | FAQ Assistant</title>
+	<link rel="stylesheet" href="./css/styles.css">
+	<script src="https://cdn.jsdelivr.net/gh/cfinke/Typo.js@master/typo/typo.js"></script>
+	<script type="module" src="./js/app.js"></script>
+</head>
+<body>
+	<div class="page">
+		<header class="topbar">
+			<div class="brand">
+				<div class="brand-mark" aria-hidden="true">TCD</div>
+				<div>
+					<div class="brand-name">THE CLEAN DIVORCE</div>
+					<div class="brand-subtitle">Frequently Asked Questions</div>
+				</div>
+			</div>
+			<div class="prototype-tag">Prototype V2</div>
+		</header>
+
+		<main class="layout">
+			<section class="chat-panel" aria-label="FAQ chatbot">
+				<div class="chat-heading">
+					<h1>How can we help?</h1>
+					<p>Ask a question about divorce mediation. I'll look for the closest match in the approved FAQ answers. Type <strong>help</strong> for examples.</p>
+				</div>
+
+				<div class="model-status" role="status" aria-live="polite">
+					<span class="status-dot" id="status-dot"></span>
+					<span id="status-text">Loading approved FAQ content...</span>
+				</div>
+
+				<div class="messages" id="messages" aria-live="polite" aria-relevant="additions">
+					<div class="message bot">Hello! Ask me about divorce mediation, the process, costs, lawyers, and agreements. Type "help" to see example questions.</div>
+				</div>
+
+				<form class="composer" id="chat-form">
+					<input id="question-input" type="text" autocomplete="off" placeholder="Type your question..." aria-label="Your question" required>
+					<button class="send-button" id="send-button" type="submit">Send</button>
+				</form>
+
+				<div class="privacy-note">Prototype only. This chatbot provides general FAQ information, not personalized legal advice. Its keyword-based safety check is a limited safeguard and must be reviewed before public use.</div>
+
+				<section class="debug-panel" id="debug-panel" aria-label="Debug information">
+					<h2>Matching details</h2>
+					<div class="debug-summary" id="debug-summary">No question has been processed yet.</div>
+					<div class="warning">The matching thresholds are initial testing values, not validated settings. Cross-Encoder scores are raw model scores, not probabilities. Record correct and incorrect matches and tune the thresholds before relying on the results.</div>
+					<div id="debug-candidates"></div>
+				</section>
+			</section>
+
+			<aside class="side-column">
+				<section class="side-card">
+					<h2>Try asking</h2>
+					<div class="quick-questions" id="quick-questions">
+						<button class="quick-question" type="button">What is divorce mediation?</button>
+						<button class="quick-question" type="button">How long does mediation take?</button>
+						<button class="quick-question" type="button">Do I need a lawyer?</button>
+						<button class="quick-question" type="button">What if my spouse refuses mediation?</button>
+					</div>
+				</section>
+
+				<section class="side-card">
+					<h2>How it works</h2>
+					<ol>
+						<li>A safety check runs first.</li>
+						<li>Help and greeting commands are handled locally.</li>
+						<li>The system checks whether the question relates to the FAQ topic.</li>
+						<li>The embedding model finds similar FAQ questions.</li>
+						<li>The Cross-Encoder re-ranks the best candidates.</li>
+						<li>The chatbot returns a saved answer or an appropriate fallback.</li>
+					</ol>
+				</section>
+
+				<section class="side-card">
+					<h2>Testing</h2>
+					<label class="debug-toggle">
+						<input type="checkbox" id="debug-checkbox">
+						Show debug information
+					</label>
+					<p class="side-note">Debug mode displays scope decisions, candidate FAQ matches, model scores, thresholds, and the final decision.</p>
+				</section>
+			</aside>
+		</main>
+	</div>
+</body>
+</html>

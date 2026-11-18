@@ -1,0 +1,50 @@
+[
+  {
+    "id": "FAQ001",
+    "question": "What is divorce mediation?",
+    "answer": "Divorce mediation is a voluntary process where a neutral third party (the mediator) helps you and your spouse communicate, negotiate, and reach agreements on divorce-related issues like property division, child custody, and support.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ002",
+    "question": "How long does the mediation process take?",
+    "answer": "Most couples complete mediation in 3-6 sessions over 2-3 months. However, the timeline varies based on the complexity of your situation and how prepared both parties are. Simple cases may resolve in just a few sessions, while more complex situations involving significant assets or custody disputes may take longer. It's typically faster, less expensive, and less adversarial than traditional litigation.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ003",
+    "question": "Do I still need a lawyer if I use mediation?",
+    "answer": "While a lawyer isn't required for mediation, many people choose to consult with one before or during the process. A lawyer can review any agreements before you sign them and ensure your rights are protected. I always encourage clients to seek independent legal advice if they have concerns.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ004",
+    "question": "What if my spouse won't agree to mediation?",
+    "answer": "Mediation is voluntary, and both parties need to be willing to participate. If your spouse is hesitant, I can provide information about the benefits of mediation that you can share with them. Sometimes a brief consultation call can help address their concerns and demonstrate how the process works.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ005",
+    "question": "Is mediation appropriate if there's been domestic abuse?",
+    "answer": "Safety is my top priority. If there's a history of domestic violence or abuse, mediation may not be appropriate. During our initial consultation, we'll discuss your situation confidentially to determine if mediation is safe and suitable for you. Alternative arrangements can be made if needed.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ006",
+    "question": "What happens if we can't reach an agreement?",
+    "answer": "If you're unable to reach agreement on certain issues, you still have options. You can pursue traditional litigation for the unresolved matters while keeping the agreements you've already made. Nothing discussed in mediation can be used against you in court, so there's no downside to trying.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ007",
+    "question": "How much does divorce mediation cost?",
+    "answer": "Mediation is typically 40-60% less expensive than traditional divorce litigation. Costs vary based on the complexity of your case and number of sessions needed. I offer a free initial consultation to discuss your situation and provide a clearer estimate of what to expect.",
+    "status": "approved"
+  },
+  {
+    "id": "FAQ008",
+    "question": "Will the agreements made in mediation be legally binding?",
+    "answer": "Yes. Once you reach agreements in mediation, they're drafted into a formal settlement agreement or memorandum of understanding. When filed with the court as part of your divorce decree, these agreements become legally binding and enforceable.",
+    "status": "approved"
+  }
+]
