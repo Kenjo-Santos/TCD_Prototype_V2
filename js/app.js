@@ -1,126 +1,39 @@
+// ============================================================================
+// THE CLEAN DIVORCE FAQ ASSISTANT — PROTOTYPE V2
+// ============================================================================
+// ARCHITECTURE OVERVIEW
+// 1. Handle safety, help, and greeting messages locally before model inference.
+// 2. Load only approved FAQ records from data/faqs.json.
+// 3. Use an embedding model to retrieve the most similar FAQ questions.
+// 4. Use a Cross-Encoder to rerank the retrieved FAQ candidates.
+// 5. Return the original approved FAQ answer only when the thresholds pass.
+//
+// IMPORTANT DESIGN CONSTRAINT
+// The chatbot does not generate or personalize legal advice. FAQ answer text is
+// preserved in data/faqs.json. The glossary below adds separate visual hints;
+// it does not rewrite the approved answer text.
 
-// ============================================================
-// THE CLEAN DIVORCE — FAQ ASSISTANT PROTOTYPE V2
-// ============================================================
-
-// MODELS AND LIBRARIES
-
-const TRANSFORMERS_MODULE_URL =
-	"https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
-
-const TYPO_DICTIONARY_PATH =
-	"https://cdn.jsdelivr.net/gh/cfinke/Typo.js@master/typo/dictionaries";
-
+// ---------------------------------------------------------------------------
+// SECTION 1 — EXTERNAL LIBRARIES, MODELS, AND MATCHING CONFIGURATION
+// ---------------------------------------------------------------------------
+// These URLs identify the browser-side AI library, spelling dictionary, and
+// pretrained models used by the prototype. Models are loaded only when needed.
+const TRANSFORMERS_MODULE_URL = "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0";
+const TYPO_DICTIONARY_PATH = "https://cdn.jsdelivr.net/gh/cfinke/Typo.js@master/typo/dictionaries";
 const EMBEDDING_MODEL = "onnx-community/all-MiniLM-L6-v2-ONNX";
 const CROSS_ENCODER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
-
 const CANDIDATE_COUNT = 5;
 
-// Initial prototype thresholds. Validate these using recorded test results.
+// These are prototype starting points, not validated production thresholds.
 const MIN_SCOPE_SIMILARITY = 0.30;
 const MIN_FAQ_COSINE_SCORE = 0.35;
 const CROSS_ENCODER_SCORE_THRESHOLD = 1.0;
 
-
-// ============================================================
-// ALTERNATIVE FAQ QUESTIONS
-// Search phrases only. Original approved answers remain in faqs.json.
-// ============================================================
-
-const FAQ_ALTERNATIVES = {
-	FAQ001: [
-		"How does divorce mediation work?",
-		"Can you explain mediation in simple terms?",
-		"What's mediation?",
-		"What is mediation?",
-		"What does a mediator do?",
-		"What happens during divorce mediation?",
-		"Can you explain the mediation process?",
-		"How does mediation work?"
-	],
-
-	FAQ002: [
-		"How long does mediation usually take?",
-		"How many meetings will I need?",
-		"How many mediation sessions will I need?",
-		"How many sessions does mediation take?",
-		"How long does it take?",
-		"What's the usual mediation timeline?",
-		"When will mediation be finished?",
-		"How many appointments are required?"
-	],
-
-	FAQ003: [
-		"Do I need a lawyer if I choose mediation?",
-		"Will I have to hire an attorney?",
-		"Need a lawyer?",
-		"Do I need an attorney?",
-		"Can I use mediation without a lawyer?",
-		"Should I consult a lawyer during mediation?",
-		"Do both spouses need lawyers?",
-		"Is hiring a lawyer mandatory?"
-	],
-
-	FAQ004: [
-		"Can mediation work if my spouse refuses?",
-		"What if my partner doesn't want to participate?",
-		"What if they say no?",
-		"What if my spouse refuses?",
-		"What happens if the other person won't participate?",
-		"Can I start mediation if my spouse is hesitant?",
-		"What if my ex refuses mediation?",
-		"Does my spouse have to agree to mediation?"
-	],
-
-	FAQ005: [
-		"Is mediation suitable if there has been domestic abuse?",
-		"Is mediation appropriate where there has been domestic violence?",
-		"Can mediation be used when there is a history of domestic abuse?",
-		"Is divorce mediation suitable in situations involving abuse?",
-		"Can I use mediation if I have experienced abuse?",
-		"Is mediation safe when abuse has occurred?",
-		"Can couples with a history of abuse use mediation?"
-	],
-
-	FAQ006: [
-		"What happens when my spouse and I disagree?",
-		"What if we disagree?",
-		"What if we cannot agree?",
-		"What happens if mediation doesn't resolve everything?",
-		"What if we can't settle all the issues?",
-		"What happens if mediation does not work?",
-		"What if we reach an agreement on only some issues?",
-		"What happens if we cannot settle?"
-	],
-
-	FAQ007: [
-		"Is mediation cheaper than going to court?",
-		"Is it expensive?",
-		"How much does it cost?",
-		"What are the mediation fees?",
-		"How expensive is divorce mediation?",
-		"What should I expect to pay for mediation?",
-		"How much money do I need for mediation?",
-		"What is the price of mediation?"
-	],
-
-	FAQ008: [
-		"Are mediation agreements legally binding?",
-		"Can a mediation agreement be enforced?",
-		"Is it legally binding?",
-		"Will our agreement be enforceable?",
-		"Do mediation agreements become legally enforceable?",
-		"Does the court recognize mediation agreements?",
-		"Will our settlement agreement be binding?",
-		"Are agreements reached in mediation enforceable?"
-	]
-};
-
-
-// ============================================================
-// CHATBOT RESPONSES
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 2 — USER-FACING RESPONSES AND FAQ GLOSSARY
+// ---------------------------------------------------------------------------
+// These fixed messages are used for local commands and fallback situations.
+// They are not generated by an AI model.
 const HELP_MESSAGE = `I can help with questions covered by The Clean Divorce's approved FAQs.
 
 Try asking:
@@ -133,58 +46,58 @@ Try asking:
 • How much does divorce mediation cost?
 • Will our mediation agreements be legally binding?
 
-I can only provide saved FAQ information, not personalized legal advice. Please contact The Clean Divorce team or request a free consultation for questions not covered by our FAQs.`;
+I can only provide saved FAQ information, not personalized legal advice. If your question is not covered, please contact The Clean Divorce team or request a free consultation.`;
 
-const GREETING_MESSAGE = `Hello! I'm The Clean Divorce FAQ assistant. I can answer questions using our approved FAQs about divorce mediation, the process, costs, lawyers, and agreements. Type "help" to see example questions.`;
-
-const OUT_OF_SCOPE_MESSAGE = `I'm sorry, but I can only assist with questions related to The Clean Divorce and its mediation services.`;
-
+const GREETING_MESSAGE = `Hello! I'm The Clean Divorce FAQ assistant. I can answer questions using our approved FAQ information about divorce mediation, the process, costs, lawyers, and agreements. Type "help" to see example questions.`;
+const OUT_OF_SCOPE_MESSAGE = `I'm sorry, but I can only assist with questions related to The Clean Divorce and its mediation services. I can help answer questions about divorce mediation, the mediation process, legal agreements, costs, lawyers, and other topics covered in our FAQs.`;
 const FAQ_NOT_FOUND_MESSAGE = `I couldn't find a sufficiently close match in the approved FAQ answers. Please contact The Clean Divorce team or request a free consultation for assistance.`;
-
-const SAFETY_MESSAGE = `Your safety matters. If you are in immediate danger, contact local emergency services now. If possible, reach out to someone you trust or a local support service. This chatbot cannot assess emergencies or provide immediate assistance.`;
-
+const SAFETY_MESSAGE = `Your safety matters. If you are in immediate danger, contact local emergency services now. If you can, reach out to someone you trust or a local support service. This chatbot cannot assess emergencies or provide immediate assistance.`;
 const FAQ_DATA_ERROR_MESSAGE = `The approved FAQ information could not be loaded. Please check the project files and try again.`;
-
 const MODEL_ERROR_MESSAGE = `I'm sorry, but the FAQ assistant couldn't complete the matching process. Please contact The Clean Divorce team or request a free consultation for assistance.`;
 
+// The glossary defines specialist terms that may appear in approved FAQ answers.
+// Definitions are deliberately short and general; they are not legal advice.
+// The approved answer wording remains stored unchanged in data/faqs.json.
+const FAQ_TERM_DEFINITIONS = Object.freeze({
+	"mediation": "A voluntary process where people work with a neutral person to try to reach an agreement.",
+	"neutral third party": "A person who is not taking either person's side and helps both people communicate.",
+	"mediator": "A neutral person who guides the discussion and helps people work toward an agreement.",
+	"negotiate": "To discuss different views and try to reach an agreement.",
+	"property division": "The process of deciding how property and belongings will be divided between spouses.",
+	"child custody": "Arrangements about a child's care and where the child will live. The legal meaning can depend on the location.",
+	"support": "Financial help that may be paid for a spouse or child, depending on the situation.",
+	"significant assets": "Valuable property or resources, such as savings, a home, investments, or a business.",
+	"custody disputes": "Disagreements about arrangements for a child's care or living arrangements.",
+	"adversarial": "Involving opposing sides who are in conflict with one another.",
+	"traditional litigation": "Resolving a legal dispute through the court process.",
+	"independent legal advice": "Advice from a lawyer who represents and advises you, rather than the other person.",
+	"domestic violence": "Abuse or controlling behaviour by a spouse, partner, or family member.",
+	"confidentially": "Privately, with information handled as confidential under the applicable rules and circumstances.",
+	"alternative arrangements": "Different ways of organizing or carrying out a process to address a person's needs.",
+	"unresolved matters": "Issues that the people involved have not yet been able to agree on.",
+	"settlement agreement": "A written document that records terms the people involved have agreed to.",
+	"memorandum of understanding": "A document that records what people have agreed or understood; its legal effect can depend on how it is prepared and used.",
+	"divorce decree": "A court document or order that formally completes a divorce.",
+	"legally binding": "Having legal force, which may mean the people involved are required to follow it.",
+	"enforceable": "Able to be acted on through a legal process if the required conditions are met."
+});
 
-// ============================================================
-// DOMAIN KEYWORDS
-// ============================================================
-
+// These terms help identify questions related to the chatbot's subject area.
 const DOMAIN_TERMS = [
-	"divorce",
-	"divorced",
-	"divorcing",
-	"mediation",
-	"mediate",
-	"mediator",
-	"separation",
-	"separated",
-	"separating",
-	"spouse",
-	"husband",
-	"wife",
-	"custody",
-	"child support",
-	"parenting",
-	"alimony",
-	"divorce papers",
-	"divorce decree",
-	"family law",
-	"ex husband",
-	"ex wife",
-	"ex spouse",
-	"marital home",
-	"separation agreement",
-	"settlement agreement"
+	"divorce", "divorced", "divorcing", "mediation", "mediate", "mediator",
+	"separation", "separated", "separating", "spouse", "husband", "wife",
+	"marriage", "married", "partner", "custody", "child support", "parenting",
+	"alimony", "property division", "property", "assets", "settlement",
+	"lawyer", "attorney", "court", "legal agreement", "divorce papers",
+	"family law", "ex husband", "ex wife", "ex spouse", "break up", "split up",
+	"co parenting", "parenting plan", "marital home", "separation agreement"
 ];
 
-
-// ============================================================
-// HTML ELEMENTS
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 3 — PAGE ELEMENT REFERENCES AND RUNTIME STATE
+// ---------------------------------------------------------------------------
+// Cache the page elements once so the rest of the application can update the
+// interface without repeatedly searching the document.
 const elements = {
 	form: document.getElementById("chat-form"),
 	input: document.getElementById("question-input"),
@@ -199,58 +112,154 @@ const elements = {
 	quickQuestions: document.getElementById("quick-questions")
 };
 
-
-// ============================================================
-// APPLICATION STATE
-// ============================================================
-
 let faqItems = [];
-let faqSearchEntries = [];
-let faqSearchEmbeddings = [];
 let faqLoadError = null;
-
 let transformersModulePromise = null;
 let spellingDictionaryPromise = null;
 let embeddingLoadPromise = null;
 let crossEncoderLoadPromise = null;
-
 let embeddingPipeline = null;
 let crossEncoderTokenizer = null;
 let crossEncoderModel = null;
-
+let faqEmbeddings = null;
 let isProcessing = false;
-
 let latestDebug = {
 	summary: "No question has been processed yet.",
 	candidates: []
 };
 
-
-// ============================================================
-// BASIC CHAT FUNCTIONS
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 4 — CHAT DISPLAY, GLOSSARY TOOLTIPS, AND DEBUG DISPLAY
+// ---------------------------------------------------------------------------
+// Update the small status indicator shown above the conversation.
 function setStatus(message, state = "") {
 	elements.statusText.textContent = message;
-	elements.statusDot.className =
-		"status-dot" + (state ? " " + state : "");
+	elements.statusDot.className = "status-dot" + (state ? " " + state : "");
 }
 
+// Display ordinary text safely as text content. This is used for user messages,
+// safety notices, greetings, and fallback messages.
 function addMessage(text, sender = "bot") {
 	const message = document.createElement("div");
-
 	message.className = "message " + sender;
 	message.textContent = text;
-
 	elements.messages.appendChild(message);
 	elements.messages.scrollTop = elements.messages.scrollHeight;
 }
 
-function showDebug(summary, candidates = []) {
-	latestDebug = { summary, candidates };
-	renderDebug();
+// Add glossary styling from JavaScript so this feature only requires replacing
+// js/app.js; no additional project file or FAQ JSON change is needed.
+function installFaqGlossaryStyles() {
+	if (document.getElementById("faq-glossary-styles")) return;
+
+	const style = document.createElement("style");
+	style.id = "faq-glossary-styles";
+	style.textContent = `
+		.faq-answer-text { margin: 0; }
+		.faq-glossary-hint {
+			margin-top: 9px;
+			color: #778397;
+			font-size: 10px;
+			line-height: 1.4;
+			font-style: italic;
+		}
+		.faq-glossary-term {
+			position: relative;
+			border-bottom: 1px dotted #315f9f;
+			color: inherit;
+			cursor: help;
+			text-decoration: none;
+			outline-offset: 3px;
+		}
+		.faq-glossary-term::after {
+			content: attr(data-tooltip);
+			position: absolute;
+			left: 0;
+			bottom: calc(100% + 8px);
+			z-index: 1000;
+			width: max-content;
+			max-width: min(290px, 72vw);
+			padding: 9px 11px;
+			border-radius: 8px;
+			background: #202938;
+			color: #ffffff;
+			font-size: 12px;
+			font-weight: 400;
+			line-height: 1.45;
+			white-space: normal;
+			box-shadow: 0 5px 18px rgba(22, 34, 51, .20);
+			opacity: 0;
+			visibility: hidden;
+			pointer-events: none;
+			transition: opacity .15s ease;
+		}
+		.faq-glossary-term:hover::after,
+		.faq-glossary-term:focus::after,
+		.faq-glossary-term:focus-visible::after {
+			opacity: 1;
+			visibility: visible;
+		}
+		.faq-glossary-term:focus-visible {
+			border-radius: 2px;
+			outline: 2px solid #7193bf;
+		}
+	`;
+	document.head.appendChild(style);
 }
 
+// Safely split an approved FAQ answer into plain text and glossary terms.
+// createTextNode() and textContent are used instead of innerHTML so FAQ text
+// cannot be interpreted as markup or executable HTML.
+function appendAnswerWithGlossary(container, answerText) {
+	const terms = Object.keys(FAQ_TERM_DEFINITIONS)
+		.sort((first, second) => second.length - first.length);
+	const escapedTerms = terms.map(term =>
+		term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+	);
+	const matcher = new RegExp("\\b(?:" + escapedTerms.join("|") + ")\\b", "gi");
+	let lastIndex = 0;
+
+	for (const match of answerText.matchAll(matcher)) {
+		const matchedTerm = match[0];
+		const definition = FAQ_TERM_DEFINITIONS[matchedTerm.toLowerCase()];
+		const matchIndex = match.index;
+
+		container.appendChild(document.createTextNode(answerText.slice(lastIndex, matchIndex)));
+
+		const termElement = document.createElement("span");
+		termElement.className = "faq-glossary-term";
+		termElement.textContent = matchedTerm;
+		termElement.dataset.tooltip = definition;
+		termElement.tabIndex = 0;
+		termElement.setAttribute("aria-label", matchedTerm + ". Definition: " + definition);
+		container.appendChild(termElement);
+
+		lastIndex = matchIndex + matchedTerm.length;
+	}
+
+	container.appendChild(document.createTextNode(answerText.slice(lastIndex)));
+}
+
+// Approved FAQ answers use this renderer so specialist terms can be explained
+// on hover or keyboard focus. The underlying answer string is not modified.
+function addFaqAnswerMessage(faq) {
+	const message = document.createElement("div");
+	message.className = "message bot faq-answer";
+
+	const answer = document.createElement("p");
+	answer.className = "faq-answer-text";
+	appendAnswerWithGlossary(answer, faq.answer);
+
+	const hint = document.createElement("div");
+	hint.className = "faq-glossary-hint";
+	hint.textContent = "Hover over or focus on the underlined terms to see a definition.";
+
+	message.append(answer, hint);
+	elements.messages.appendChild(message);
+	elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+// Render technical matching details only when debug mode is enabled.
 function renderDebug() {
 	if (!elements.debugCheckbox.checked) return;
 
@@ -262,93 +271,45 @@ function renderDebug() {
 		item.className = "debug-candidate";
 
 		const title = document.createElement("strong");
-
-		title.textContent =
-			candidate.faq.id + " — " + candidate.faq.question;
+		title.textContent = candidate.faq.id + " — " + candidate.faq.question;
 
 		const details = document.createElement("span");
-
-		const cosineText =
-			"Cosine similarity: " + candidate.cosine.toFixed(4);
-
-		const matchedText = candidate.matchedQuestion
-			? " | Matched wording: " + candidate.matchedQuestion
-			: "";
-
+		const cosineText = "Cosine similarity: " + candidate.cosine.toFixed(4);
 		const crossText = Number.isFinite(candidate.crossScore)
 			? " | Cross-Encoder score: " + candidate.crossScore.toFixed(4)
 			: " | Cross-Encoder: not run";
-
-		details.textContent =
-			cosineText + matchedText + crossText;
+		details.textContent = cosineText + crossText;
 
 		item.append(title, details);
 		elements.debugCandidates.appendChild(item);
 	}
 }
 
+// Store the latest diagnostics. If debug mode is enabled, refresh the panel now;
+// otherwise the data will be shown when the user turns debug mode on.
+function showDebug(summary, candidates = []) {
+	latestDebug = { summary, candidates };
+	renderDebug();
+}
+
+// ---------------------------------------------------------------------------
+// SECTION 5 — QUESTION NORMALIZATION AND SPELLING SUPPORT
+// ---------------------------------------------------------------------------
+// Convert user input into a consistent format before matching. This reduces
+// differences caused by capitalization, extra spaces, and punctuation.
 function normalizeQuestion(question) {
-	return String(question ?? "")
+	return question
 		.toLowerCase()
-		.normalize("NFKC")
 		.replace(/[’‘]/g, "'")
 		.replace(/[^\p{L}\p{N}\s'-]/gu, " ")
 		.replace(/\s+/g, " ")
 		.trim();
 }
 
-
-// ============================================================
-// SAFETY DETECTION
-// Runs on the original question before normal FAQ matching.
-// ============================================================
-
-function containsSafetyConcern(question) {
-	const text = normalizeQuestion(question)
-		.replace(/\bi'm\b/g, "i am")
-		.replace(/\bim\b/g, "i am")
-		.replace(/\bi've\b/g, "i have")
-		.replace(/\bdon't\b/g, "do not")
-		.replace(/\bdoesn't\b/g, "does not")
-		.replace(/\bcan't\b/g, "cannot");
-
-	const safetyPatterns = [
-
-		// Direct danger statements.
-		/\b(?:i am|we are|someone is|somebody is|my child is|my children are|a child is)\s+(?:(?:currently|right now)\s+)?(?:in\s+)?(?:immediate\s+)?danger\b/,
-		/\b(?:in immediate danger|in danger right now|unsafe right now)\b/,
-		/\bi am in an? (?:unsafe|dangerous) situation\b/,
-
-		// Feeling unsafe.
-		/\b(?:i do not feel safe|we do not feel safe|i feel unsafe|we feel unsafe|i am not safe|we are not safe|i am unsafe|we are unsafe|fear for my safety)\b/,
-		/\bi feel unsafe around (?:my|our)\s+(?:spouse|partner|husband|wife)\b/,
-		/\b(?:i am|we are)\s+(?:afraid|scared|frightened)\s+(?:for my|for our)\s+(?:safety|life)\b/,
-		/\b(?:i am|we are)\s+(?:afraid|scared|frightened)\s+of\s+(?:my|our)\s+(?:spouse|partner|husband|wife|ex)\b/,
-
-		// Threats, abuse, or harm.
-		/\b(?:i am|we are)\s+being\s+(?:threatened|hurt|harmed|attacked|abused|stalked)\b/,
-		/\b(?:someone|somebody|he|she|they)\s+(?:(?:is|are|has been|have been|was|were)\s+)?(?:threatening|threatened|hurting|hurt|harming|harmed|attacking|attacked|abusing|abused|stalking|stalked|following|followed)\s+me\b/,
-		/\b(?:my|our|former|ex)\s+(?:spouse|partner|husband|wife)\s+(?:is|has been|was)\s+(?:threatening|threatened|abusive|abusing|hurting|hitting|violent|controlling|stalking)\b/,
-		/\b(?:my|our|former|ex)\s+(?:spouse|partner|husband|wife)\s+has been abusive\b/,
-
-		// Child safety.
-		/\b(?:my|our)\s+children?\b.{0,60}\b(?:in danger|unsafe|at risk|being hurt|being harmed|being threatened|being abused)\b/,
-		/\b(?:i am|i feel|i'm)\s+(?:worried|concerned|afraid)\s+about\s+(?:my|our)\s+child(?:ren)?'s\s+safety\b/,
-
-		// Personal self-harm or suicidal thoughts.
-		/\b(?:i want to|i am thinking about|i might|i may|i plan to)\s+(?:hurt|harm)\s+myself\b/,
-		/\b(?:i want to|i am thinking about|i might|i may)\s+(?:end my life|kill myself)\b/,
-		/\b(?:i am|i'm)\s+thinking about\s+(?:suicide|self[- ]harm)\b/
-	];
-
-	return safetyPatterns.some(pattern => pattern.test(text));
-}
-
-
-// ============================================================
-// SPELLING CORRECTION — TYPO.JS
-// ============================================================
-
+// Typo.js loads an English Hunspell dictionary from the CDN.
+// The dictionary is cached after its first successful load.
+// Download and initialize the English dictionary once, then reuse it for later
+// questions. A failed dictionary load is handled as an optional feature failure.
 async function loadSpellingDictionary() {
 	if (spellingDictionaryPromise) {
 		return spellingDictionaryPromise;
@@ -356,36 +317,55 @@ async function loadSpellingDictionary() {
 
 	spellingDictionaryPromise = (async () => {
 		if (typeof window.Typo !== "function") {
-			throw new Error("Typo.js did not load.");
+			throw new Error("Typo.js did not load. Check the Typo.js script in index.html.");
 		}
 
-		const folder = TYPO_DICTIONARY_PATH + "/en_US";
-
+		// Typo.js expects the .aff and .dic dictionary files. Fetch them first so
+		// network errors can be handled instead of leaving dictionary loading pending.
+		const dictionaryFolder = TYPO_DICTIONARY_PATH + "/en_US";
 		const [affResponse, dicResponse] = await Promise.all([
-			fetch(folder + "/en_US.aff"),
-			fetch(folder + "/en_US.dic")
+			fetch(dictionaryFolder + "/en_US.aff"),
+			fetch(dictionaryFolder + "/en_US.dic")
 		]);
 
 		if (!affResponse.ok || !dicResponse.ok) {
-			throw new Error("The English spelling dictionary could not be downloaded.");
+			throw new Error(
+				"Could not download the English spelling dictionary (HTTP " +
+				(!affResponse.ok ? affResponse.status : dicResponse.status) + ")."
+			);
 		}
 
-		const [affData, dicData] = await Promise.all([
+		const [affData, wordsData] = await Promise.all([
 			affResponse.text(),
 			dicResponse.text()
 		]);
 
-		const dictionary = new window.Typo(
-			"en_US",
-			affData,
-			dicData
-		);
+		return await new Promise((resolve, reject) => {
+			let finished = false;
+			const timeoutId = window.setTimeout(() => {
+				if (!finished) {
+					finished = true;
+					reject(new Error("The English spelling dictionary took too long to initialize."));
+				}
+			}, 30000);
 
-		if (!dictionary.loaded) {
-			throw new Error("The English spelling dictionary did not initialize.");
-		}
-
-		return dictionary;
+			try {
+				new window.Typo("en_US", affData, wordsData, {
+					asyncLoad: true,
+					loadedCallback: dictionary => {
+						if (finished) return;
+						finished = true;
+						window.clearTimeout(timeoutId);
+						resolve(dictionary);
+					}
+				});
+			} catch (error) {
+				if (finished) return;
+				finished = true;
+				window.clearTimeout(timeoutId);
+				reject(error);
+			}
+		});
 	})().catch(error => {
 		spellingDictionaryPromise = null;
 		throw error;
@@ -394,119 +374,113 @@ async function loadSpellingDictionary() {
 	return spellingDictionaryPromise;
 }
 
-
-// Adjacent swapped letters count as one error.
-// Example: hlep -> help.
-
+// Measure how many edits separate two words. Adjacent swapped letters count
+// as one edit so common typing mistakes can be corrected more naturally.
 function editDistance(first, second) {
+	// Optimal String Alignment distance: an adjacent transposition counts as
+	// one edit, so "hlep" and "help" have a distance of 1.
 	const rows = first.length + 1;
 	const columns = second.length + 1;
-
-	const table = Array.from(
+	const distance = Array.from(
 		{ length: rows },
 		() => Array(columns).fill(0)
 	);
 
 	for (let row = 0; row < rows; row++) {
-		table[row][0] = row;
+		distance[row][0] = row;
 	}
 
 	for (let column = 0; column < columns; column++) {
-		table[0][column] = column;
+		distance[0][column] = column;
 	}
 
 	for (let row = 1; row < rows; row++) {
 		for (let column = 1; column < columns; column++) {
-			const cost =
-				first[row - 1] === second[column - 1] ? 0 : 1;
+			const cost = first[row - 1] === second[column - 1] ? 0 : 1;
 
-			table[row][column] = Math.min(
-				table[row - 1][column] + 1,
-				table[row][column - 1] + 1,
-				table[row - 1][column - 1] + cost
+			distance[row][column] = Math.min(
+				distance[row - 1][column] + 1,
+				distance[row][column - 1] + 1,
+				distance[row - 1][column - 1] + cost
 			);
 
+			// Treat two adjacent swapped letters as one spelling error.
 			if (
 				row > 1 &&
 				column > 1 &&
 				first[row - 1] === second[column - 2] &&
 				first[row - 2] === second[column - 1]
 			) {
-				table[row][column] = Math.min(
-					table[row][column],
-					table[row - 2][column - 2] + 1
+				distance[row][column] = Math.min(
+					distance[row][column],
+					distance[row - 2][column - 2] + 1
 				);
 			}
 		}
 	}
 
-	return table[first.length][second.length];
+	return distance[first.length][second.length];
 }
 
+// Apply the original word's capitalization style to a spelling suggestion.
 function preserveWordCase(original, replacement) {
 	if (original === original.toUpperCase()) {
 		return replacement.toUpperCase();
 	}
 
-	if (original[0] === original[0].toUpperCase()) {
+	if (original[0] && original[0] === original[0].toUpperCase()) {
 		return replacement.charAt(0).toUpperCase() + replacement.slice(1);
 	}
 
 	return replacement;
 }
 
+// Correct only close spelling suggestions. The original wording is retained
+// whenever a safe correction cannot be made.
 async function correctSpelling(question) {
+	const originalText = question;
+	const corrections = [];
+
 	try {
 		const dictionary = await loadSpellingDictionary();
-
-		const tokens =
-			question.match(/[A-Za-z]+|[^A-Za-z]+/g) || [];
-
-		const corrections = [];
+		const tokens = originalText.match(/[A-Za-z]+|[^A-Za-z]+/g) || [];
 
 		const correctedTokens = tokens.map(token => {
-			if (
-				!/^[A-Za-z]{4,}$/.test(token) ||
-				token === token.toUpperCase()
-			) {
+			// Leave punctuation, short words, and acronyms unchanged.
+			if (!/^[A-Za-z]{4,}$/.test(token) || token === token.toUpperCase()) {
 				return token;
 			}
 
-			const word = token.toLowerCase();
-
-			if (dictionary.check(word)) {
+			const lowerWord = token.toLowerCase();
+			if (dictionary.check(lowerWord)) {
 				return token;
 			}
 
-			const suggestions = dictionary.suggest(word, 5);
-			const maxDistance = word.length >= 8 ? 2 : 1;
+			const suggestions = dictionary.suggest(lowerWord, 5);
+			if (!suggestions.length) {
+				return token;
+			}
 
+			// Only accept a close spelling suggestion to reduce unwanted changes.
+			const maximumDistance = lowerWord.length >= 8 ? 2 : 1;
 			const suggestion = suggestions
 				.map((candidate, index) => ({
 					word: candidate,
 					distance: typeof candidate === "string"
-						? editDistance(word, candidate.toLowerCase())
+						? editDistance(lowerWord, candidate.toLowerCase())
 						: Number.POSITIVE_INFINITY,
 					index
 				}))
-				.filter(item =>
-					typeof item.word === "string" &&
-					item.distance <= maxDistance
-				)
-				.sort((a, b) =>
-					a.distance - b.distance || a.index - b.index
-				)[0]?.word;
+				.filter(item => item.word.length >= 4 && item.distance <= maximumDistance)
+				.sort((a, b) => a.distance - b.distance || a.index - b.index)[0]?.word;
 
-			if (!suggestion) return token;
+			if (!suggestion) {
+				return token;
+			}
 
-			const corrected = preserveWordCase(token, suggestion);
-
-			corrections.push({
-				original: token,
-				corrected
-			});
-
-			return corrected;
+			const correctedWord = preserveWordCase(token, suggestion);
+			corrections.push({ original: token, corrected: correctedWord });
+			return correctedWord;
 		});
 
 		return {
@@ -515,41 +489,23 @@ async function correctSpelling(question) {
 			available: true
 		};
 	} catch (error) {
-		console.warn("Typo.js is unavailable; original wording will be used.", error);
-
+		// Spelling correction is optional; a CDN/dictionary problem must not stop the FAQ chatbot.
+		console.warn("Typo.js spelling correction is unavailable:", error);
 		return {
-			text: question,
-			corrections: [],
+			text: originalText,
+			corrections,
 			available: false
 		};
 	}
 }
 
-
-// ============================================================
-// HELP AND GREETING COMMANDS
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 6 — LOCAL COMMANDS, SAFETY OVERRIDE, AND TOPIC CHECK
+// ---------------------------------------------------------------------------
+// Recognize simple commands locally so help and greeting responses do not need
+// to download or run either AI model.
 function isHelpRequest(question) {
 	const text = normalizeQuestion(question);
-	const words = text.split(" ").filter(Boolean);
-
-	// Recognize a one-letter mistake or adjacent swapped letters in "help".
-	if (
-		words.length === 1 &&
-		editDistance(words[0], "help") <= 1
-	) {
-		return true;
-	}
-
-	if (
-		words.length === 2 &&
-		words[1] === "me" &&
-		editDistance(words[0], "help") <= 1
-	) {
-		return true;
-	}
-
 	const patterns = [
 		/^(?:please\s+)?help(?:\s+me)?(?:\s+please)?$/,
 		/^(?:i\s+)?need\s+help(?:\s+please)?$/,
@@ -557,62 +513,71 @@ function isHelpRequest(question) {
 		/^what\s+can\s+i\s+ask(?:\s+you)?$/,
 		/^what\s+questions\s+can\s+i\s+ask(?:\s+you)?$/,
 		/^what\s+can\s+you\s+do$/,
-		/^what\s+topics\s+do\s+you\s+cover$/,
-		/^(?:show|give)\s+(?:me\s+)?examples$/
+		/^what\s+topics\s+(?:do\s+you\s+cover|can\s+you\s+help\s+with)$/,
+		/^(?:show|give)\s+(?:me\s+)?(?:some\s+)?examples$/,
+		/^how\s+do\s+i\s+use\s+(?:this|the\s+chatbot)$/
 	];
 
 	return patterns.some(pattern => pattern.test(text));
 }
 
+// Recognize a small set of standalone greetings without loading AI models.
 function isGreeting(question) {
-	return /^(hi|hello|hey|good morning|good afternoon|good evening|hi there|hello there)$/.test(
-		normalizeQuestion(question)
-	);
+	const text = normalizeQuestion(question);
+	return /^(hi|hello|hey|good morning|good afternoon|good evening|hi there|hello there)$/.test(text);
 }
 
+// This limited keyword-pattern check runs before normal FAQ matching. It is a
+// safeguard for the prototype, not a complete safety assessment or classifier.
+function containsSafetyConcern(question) {
+	// Normalize common contractions so "I'm in danger" and "I am in danger"
+	// are treated the same way. This check runs before spelling correction or AI.
+	const text = normalizeQuestion(question)
+		.replace(/\bi['’]?m\b/g, "i am")
+		.replace(/\bwe['’]?re\b/g, "we are")
+		.replace(/\bthey['’]?re\b/g, "they are");
 
-// ============================================================
-// UNSUPPORTED SPECIFIC REQUESTS
-// These are related to divorce but are not answered by the FAQs.
-// ============================================================
+	const safetyPatterns = [
+		// Direct statements about being in danger or not feeling safe.
+		/\b(?:i am|we are|someone is|somebody is|my child is|my children are|a child is)\b.{0,60}\b(?:in immediate danger|in danger|unsafe|not safe|at risk)\b/,
+		/\b(?:i do not feel safe|i don\x27t feel safe|we do not feel safe|we don\x27t feel safe|i feel unsafe|we feel unsafe|do not feel safe|don\x27t feel safe|not safe right now|in danger right now|fear for my safety)\b/,
+		/\b(?:in immediate danger|in danger|unsafe right now)\b/,
 
-function isUnsupportedSpecificRequest(question) {
-	const text = normalizeQuestion(question);
+		// Abuse, threats, violence, stalking, or intimidation involving a person.
+		/\b(?:domestic violence|domestic abuse|spousal abuse|being abused|abusive relationship)\b/,
+		/\b(?:my|our|former|ex)\s+(?:spouse|partner|husband|wife)\b.{0,70}\b(?:threat\w*|abus\w*|hurt\w*|attack\w*|hit\w*|violent|stalk\w*|intimidat\w*)\b/,
+		/\b(?:threat\w*|abus\w*|hurt\w*|attack\w*|hit\w*|stalk\w*)\b.{0,70}\b(?:me|my child|my children|us)\b/,
+		/\b(?:i have been|i was|i am|we are)\b.{0,50}\b(?:threatened|abused|hurt|attacked|stalked|followed|intimidated)\b/,
+		/\b(?:someone|somebody|a person)\s+(?:is\s+)?(?:threatening|hurting|attacking|following|stalking)\s+me\b/,
 
-	const patterns = [
-		/\bhow long\b.{0,70}\bdivorc\w*\b.{0,50}\b(?:court|litigation|trial)\b/,
-		/\bhow long\b.{0,70}\b(?:court|litigation|trial)\b.{0,50}\bdivorc\w*\b/,
-		/\b(?:calculate|work out|figure out|estimate)\b.{0,60}\bchild support\b/,
-		/\b(?:recommend|suggest|find|choose)\b.{0,60}\b(?:divorce\s+)?(?:lawyer|attorney)s?\b/,
-		/\b(?:file|submit|serve)\b.{0,60}\bdivorce papers\b/,
-		/\bguarantee\b.{0,70}\b(?:spouse|partner|agree|participate)\b/
+		// Fear or safety concerns involving a spouse or partner.
+		/\b(?:afraid|scared|frightened)\b.{0,45}\b(?:of my|of the|by my)\s+(?:spouse|partner|husband|wife|ex)\b/,
+		/\b(?:my|our)\s+(?:spouse|partner|husband|wife)\b.{0,60}\b(?:makes me feel|causes me to feel)\b.{0,30}\b(?:unsafe|afraid|scared|frightened)\b/,
+
+		// Child safety concerns.
+		/\b(?:my child|my children|our child|our children)\b.{0,60}\b(?:in danger|unsafe|at risk|being hurt|being threatened)\b/,
+
+		// A help request accompanied by an explicit safety indicator.
+		/\b(?:help me|please help|need help)\b.{0,50}\b(?:danger|unsafe|threatened|threatening|abuse|hurt|afraid|scared)\b/
 	];
 
-	return patterns.some(pattern => pattern.test(text));
+	return safetyPatterns.some(pattern => pattern.test(text));
 }
 
-
-// ============================================================
-// DOMAIN CHECK
-// ============================================================
-
+// Check for vocabulary that commonly appears in divorce mediation questions.
+// This signal is combined with embedding similarity for the topic-scope check.
 function hasDomainSignal(question) {
 	const text = normalizeQuestion(question);
-
 	return DOMAIN_TERMS.some(term => {
-		const escaped = term
+		const escapedTerm = term
 			.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 			.replace(/\s+/g, "\\s+");
-
-		return new RegExp("\\b" + escaped + "\\b", "i").test(text);
+		return new RegExp("\\b" + escapedTerm + "\\b", "i").test(text);
 	});
 }
 
-
-// ============================================================
-// COSINE SIMILARITY
-// ============================================================
-
+// Compare two numerical question representations. A value closer to 1 means
+// the vectors point in a more similar direction; this is a retrieval score.
 function cosineSimilarity(a, b) {
 	if (!a || !b || a.length !== b.length || a.length === 0) {
 		throw new Error("Cannot compare embedding vectors with different dimensions.");
@@ -622,187 +587,109 @@ function cosineSimilarity(a, b) {
 	let normA = 0;
 	let normB = 0;
 
-	for (let index = 0; index < a.length; index++) {
-		dot += a[index] * b[index];
-		normA += a[index] * a[index];
-		normB += b[index] * b[index];
+	for (let i = 0; i < a.length; i++) {
+		dot += a[i] * b[i];
+		normA += a[i] * a[i];
+		normB += b[i] * b[i];
 	}
 
 	const denominator = Math.sqrt(normA) * Math.sqrt(normB);
-
 	return denominator === 0 ? 0 : dot / denominator;
 }
 
-
-// ============================================================
-// LOAD ORIGINAL APPROVED FAQ DATA
-// No original question or answer is modified.
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 7 — APPROVED FAQ DATA AND AI MODEL LIFECYCLE
+// ---------------------------------------------------------------------------
+// Load only records explicitly marked as approved. This function does not edit
+// the file; every response is retrieved from the original JSON answer string.
 async function loadFaqData() {
-	const response = await fetch("./data/faqs.json", {
-		cache: "no-store"
-	});
-
+	const response = await fetch("./data/faqs.json", { cache: "no-store" });
 	if (!response.ok) {
-		throw new Error(
-			"Could not load FAQ data (HTTP " + response.status + ")."
-		);
+		throw new Error("Could not load FAQ data (HTTP " + response.status + ").");
 	}
 
 	const data = await response.json();
-
 	if (!Array.isArray(data)) {
 		throw new Error("FAQ data must be a JSON array.");
 	}
 
 	faqItems = data.filter(item =>
-		item &&
-		typeof item.id === "string" &&
-		typeof item.question === "string" &&
-		item.question.trim() &&
-		typeof item.answer === "string" &&
-		item.answer.trim() &&
+		item && typeof item.id === "string" &&
+		typeof item.question === "string" && item.question.trim() &&
+		typeof item.answer === "string" && item.answer.trim() &&
 		item.status === "approved"
 	);
 
 	if (faqItems.length === 0) {
-		throw new Error("No approved FAQ entries were found.");
+		throw new Error("No approved FAQ entries were found in data/faqs.json.");
 	}
-
-	// Combine original questions with internal alternative search phrases.
-	// All entries point back to the original approved FAQ object.
-
-	faqSearchEntries = faqItems.flatMap(faq => {
-		const alternatives = FAQ_ALTERNATIVES[faq.id] || [];
-
-		const phrases = [
-			faq.question,
-			...alternatives
-		];
-
-		const uniquePhrases = [
-			...new Set(
-				phrases
-					.map(phrase => normalizeQuestion(phrase))
-					.filter(Boolean)
-			)
-		];
-
-		return uniquePhrases.map(phrase => ({
-			faq,
-			matchedQuestion: phrase
-		}));
-	});
 }
 
-
-// ============================================================
-// TRANSFORMERS.JS
-// ============================================================
-
+// Import Transformers.js only when a question actually needs FAQ matching.
+// This prevents a CDN or model-library problem from disabling help and safety commands.
+// Import Transformers.js on demand and cache the module promise so the library
+// is downloaded only once during this page session.
 async function getTransformersModule() {
 	if (!transformersModulePromise) {
-		transformersModulePromise = import(TRANSFORMERS_MODULE_URL)
-			.then(module => {
-				if (
-					typeof module.pipeline !== "function" ||
-					typeof module.AutoTokenizer?.from_pretrained !== "function" ||
-					typeof module.AutoModelForSequenceClassification?.from_pretrained !== "function"
-				) {
-					throw new Error("Transformers.js did not provide the required model functions.");
-				}
-
-				return module;
-			})
-			.catch(error => {
-				transformersModulePromise = null;
-				throw error;
-			});
+		transformersModulePromise = import(TRANSFORMERS_MODULE_URL).then(module => {
+			if (typeof module.pipeline !== "function" ||
+				typeof module.AutoTokenizer?.from_pretrained !== "function" ||
+				typeof module.AutoModelForSequenceClassification?.from_pretrained !== "function") {
+				throw new Error("The Transformers.js library did not provide the required model functions.");
+			}
+			return module;
+		}).catch(error => {
+			transformersModulePromise = null;
+			throw error;
+		});
 	}
 
 	return transformersModulePromise;
 }
 
-
-// ============================================================
-// LOAD EMBEDDING MODEL AND FAQ EMBEDDINGS
-// ============================================================
-
+// Load the embedding model and convert every approved FAQ question into a
+// numerical vector once. Later user questions are compared with these vectors.
 async function loadEmbeddingModel() {
-	if (embeddingLoadPromise) {
-		return embeddingLoadPromise;
-	}
+	if (embeddingLoadPromise) return embeddingLoadPromise;
 
 	embeddingLoadPromise = (async () => {
 		const { pipeline } = await getTransformersModule();
+		setStatus("Loading the embedding model. The first download may take a while.", "busy");
+		embeddingPipeline = await pipeline("feature-extraction", EMBEDDING_MODEL);
 
-		setStatus(
-			"Loading the embedding model. The first download may take a while.",
-			"busy"
+		setStatus("Preparing the approved FAQ embeddings...", "busy");
+		const faqResult = await embeddingPipeline(
+			faqItems.map(item => item.question),
+			{ pooling: "mean", normalize: true }
 		);
 
-		embeddingPipeline = await pipeline(
-			"feature-extraction",
-			EMBEDDING_MODEL
-		);
-
-		setStatus(
-			"Preparing original and alternative FAQ embeddings...",
-			"busy"
-		);
-
-		const result = await embeddingPipeline(
-			faqSearchEntries.map(entry => entry.matchedQuestion),
-			{
-				pooling: "mean",
-				normalize: true
-			}
-		);
-
-		faqSearchEmbeddings = result.tolist();
-
+		faqEmbeddings = faqResult.tolist();
 		if (
-			faqSearchEmbeddings.length !== faqSearchEntries.length ||
-			faqSearchEmbeddings.some(vector => vector.length !== 384)
+			faqEmbeddings.length !== faqItems.length ||
+			faqEmbeddings.some(vector => vector.length !== 384)
 		) {
 			throw new Error("The embedding model returned an unexpected vector size.");
 		}
 	})().catch(error => {
 		embeddingLoadPromise = null;
 		embeddingPipeline = null;
-		faqSearchEmbeddings = [];
+		faqEmbeddings = null;
 		throw error;
 	});
 
 	return embeddingLoadPromise;
 }
 
-
-// ============================================================
-// LOAD CROSS-ENCODER
-// ============================================================
-
+// Load the second-stage model and tokenizer. The Cross-Encoder is used only
+// after the embedding model has produced a shortlist of candidate FAQs.
 async function loadCrossEncoder() {
-	if (crossEncoderLoadPromise) {
-		return crossEncoderLoadPromise;
-	}
+	if (crossEncoderLoadPromise) return crossEncoderLoadPromise;
 
 	crossEncoderLoadPromise = (async () => {
-		const {
-			AutoTokenizer,
-			AutoModelForSequenceClassification
-		} = await getTransformersModule();
-
+		const { AutoTokenizer, AutoModelForSequenceClassification } = await getTransformersModule();
 		setStatus("Loading the Cross-Encoder model...", "busy");
-
-		crossEncoderTokenizer = await AutoTokenizer.from_pretrained(
-			CROSS_ENCODER_MODEL
-		);
-
-		crossEncoderModel = await AutoModelForSequenceClassification.from_pretrained(
-			CROSS_ENCODER_MODEL
-		);
+		crossEncoderTokenizer = await AutoTokenizer.from_pretrained(CROSS_ENCODER_MODEL);
+		crossEncoderModel = await AutoModelForSequenceClassification.from_pretrained(CROSS_ENCODER_MODEL);
 	})().catch(error => {
 		crossEncoderLoadPromise = null;
 		crossEncoderTokenizer = null;
@@ -813,101 +700,60 @@ async function loadCrossEncoder() {
 	return crossEncoderLoadPromise;
 }
 
-
-// ============================================================
-// FIND BEST MATCHING PHRASE FOR EACH FAQ
-// Prevents one FAQ from filling all candidate positions.
-// ============================================================
-
-function findBestCandidatePerFaq(questionVector) {
-	const bestMatches = new Map();
-
-	for (let index = 0; index < faqSearchEntries.length; index++) {
-		const entry = faqSearchEntries[index];
-
-		const cosine = cosineSimilarity(
-			questionVector,
-			faqSearchEmbeddings[index]
-		);
-
-		const existing = bestMatches.get(entry.faq.id);
-
-		if (!existing || cosine > existing.cosine) {
-			bestMatches.set(entry.faq.id, {
-				faq: entry.faq,
-				matchedQuestion: entry.matchedQuestion,
-				cosine,
-				crossScore: Number.NaN
-			});
-		}
-	}
-
-	return [...bestMatches.values()]
-		.sort((a, b) => b.cosine - a.cosine)
-		.slice(0, Math.min(CANDIDATE_COUNT, faqItems.length));
-}
-
-
-// ============================================================
-// CROSS-ENCODER RERANKING
-// ============================================================
-
+// Score each shortlisted FAQ against the user's original question, then sort
+// candidates from highest to lowest Cross-Encoder raw score.
 async function rerankCandidates(question, candidates) {
 	const features = crossEncoderTokenizer(
 		candidates.map(() => question),
 		{
-			text_pair: candidates.map(candidate => candidate.matchedQuestion),
+			text_pair: candidates.map(candidate => candidate.faq.question),
 			padding: true,
 			truncation: true
 		}
 	);
 
 	const output = await crossEncoderModel(features);
-	const scores = Array.from(output.logits.data);
+	const rawScores = Array.from(output.logits.data);
 
-	if (scores.length !== candidates.length) {
+	if (rawScores.length !== candidates.length) {
 		throw new Error("The Cross-Encoder returned an unexpected number of scores.");
 	}
 
 	return candidates
 		.map((candidate, index) => ({
 			...candidate,
-			crossScore: scores[index]
+			crossScore: rawScores[index]
 		}))
 		.sort((a, b) => b.crossScore - a.crossScore);
 }
 
-
-// ============================================================
-// MAIN QUESTION PROCESSING
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 8 — MAIN QUESTION PROCESSING PIPELINE
+// ---------------------------------------------------------------------------
+// This function coordinates the order of decisions:
+// safety -> local commands -> spelling -> scope -> candidate retrieval ->
+// Cross-Encoder reranking -> threshold checks -> approved answer or fallback.
 async function processQuestion(question) {
 	const originalQuestion = normalizeQuestion(question);
 
-	// PRIORITY 1: Safety check on the original user wording.
-
+	// Priority 1: safety override on the original wording.
 	if (containsSafetyConcern(originalQuestion)) {
-		showDebug(
-			"SAFETY OVERRIDE: a personal safety concern was detected. FAQ matching was skipped."
-		);
-
+		showDebug("SAFETY OVERRIDE: a safety keyword pattern was detected. FAQ matching was skipped.");
 		addMessage(SAFETY_MESSAGE);
 		setStatus("Safety response displayed. Normal matching was skipped.", "ready");
 		return;
 	}
 
-	// PRIORITY 2: Local help and greeting commands.
-
+	// Keep common local commands independent of the spelling CDN and AI models.
 	if (isHelpRequest(originalQuestion)) {
-		showDebug("HELP COMMAND: local help information was displayed.");
+		showDebug("HELP COMMAND: local help information was displayed. External libraries and AI models were not loaded.");
 		addMessage(HELP_MESSAGE);
 		setStatus("Help information displayed.", "ready");
 		return;
 	}
 
 	if (isGreeting(originalQuestion)) {
-		showDebug("GREETING: local greeting response was displayed.");
+		showDebug("GREETING: local greeting response was displayed. External libraries and AI models were not loaded.");
 		addMessage(GREETING_MESSAGE);
 		setStatus("Ready for a question about The Clean Divorce.", "ready");
 		return;
@@ -920,41 +766,25 @@ async function processQuestion(question) {
 		return;
 	}
 
-	// PRIORITY 3: Correct spelling.
-	// The original question remains available for the safety check.
-
+	// Typo.js spelling is optional. If its CDN or dictionary is unavailable,
+	// the original question continues through the normal matching process.
 	setStatus("Checking spelling...", "busy");
-
 	const spellingResult = await correctSpelling(question);
-
-	const matchingQuestion = normalizeQuestion(
-		spellingResult.text || question
-	);
-
+	const matchingQuestion = normalizeQuestion(spellingResult.text || question);
 	const correctionSummary = spellingResult.corrections.length
-		? " | Spelling corrections: " +
-			spellingResult.corrections
-				.map(item => item.original + " → " + item.corrected)
-				.join(", ")
-		: (
-			spellingResult.available
-				? " | Spelling corrections: none"
-				: " | Spellchecker unavailable; original wording used"
-		);
+		? " | Spelling corrections: " + spellingResult.corrections
+			.map(item => item.original + " → " + item.corrected).join(", ")
+		: (spellingResult.available ? " | Spelling corrections: none" : " | Spellchecker: unavailable; original wording used");
 
-	// Safety check again after spelling correction.
-
+	// Check corrected wording for safety as well, while keeping the original check first.
 	if (containsSafetyConcern(matchingQuestion)) {
-		showDebug(
-			"SAFETY OVERRIDE: corrected wording triggered a safety check." +
-			correctionSummary
-		);
-
+		showDebug("SAFETY OVERRIDE: the spelling-normalized question triggered a safety pattern." + correctionSummary);
 		addMessage(SAFETY_MESSAGE);
 		setStatus("Safety response displayed. Normal matching was skipped.", "ready");
 		return;
 	}
 
+	// Also allow a common command to be recognized after spelling correction.
 	if (isHelpRequest(matchingQuestion)) {
 		showDebug("HELP COMMAND: local help information was displayed." + correctionSummary);
 		addMessage(HELP_MESSAGE);
@@ -969,147 +799,90 @@ async function processQuestion(question) {
 		return;
 	}
 
-	// PRIORITY 4: Reject specific requests not covered by approved FAQs.
-
-	if (isUnsupportedSpecificRequest(matchingQuestion)) {
-		showDebug(
-			"RELATED BUT NOT COVERED: the question requests information outside the approved FAQ answers." +
-			correctionSummary
-		);
-
-		addMessage(FAQ_NOT_FOUND_MESSAGE);
-		setStatus("No approved FAQ covers this specific request.", "ready");
-		return;
-	}
-
 	try {
-		// PRIORITY 5: Embedding matching.
-
 		await loadEmbeddingModel();
-
-		setStatus(
-			"Comparing your question with approved FAQ questions...",
-			"busy"
-		);
+		setStatus("Converting your question into an embedding...", "busy");
 
 		const questionResult = await embeddingPipeline(
 			matchingQuestion,
-			{
-				pooling: "mean",
-				normalize: true
-			}
+			{ pooling: "mean", normalize: true }
 		);
-
 		const questionVector = questionResult.tolist()[0];
 
-		const candidates = findBestCandidatePerFaq(questionVector);
+		const candidates = faqItems
+			.map((faq, index) => ({
+				faq,
+				cosine: cosineSimilarity(questionVector, faqEmbeddings[index]),
+				crossScore: Number.NaN
+			}))
+			.sort((a, b) => b.cosine - a.cosine)
+			.slice(0, Math.min(CANDIDATE_COUNT, faqItems.length));
 
 		const bestCosine = candidates[0]?.cosine ?? 0;
 		const hasDomainKeyword = hasDomainSignal(matchingQuestion);
+		const passesSemanticScope = bestCosine >= MIN_SCOPE_SIMILARITY;
 
-		const passesSemanticScope =
-			bestCosine >= MIN_SCOPE_SIMILARITY;
-
-		// Domain keywords alone do not approve an FAQ answer.
-
+		// Stop clearly unrelated questions before loading the heavier Cross-Encoder.
 		if (!hasDomainKeyword && !passesSemanticScope) {
 			showDebug(
-				"OUT OF SCOPE | Domain keyword: no | Best cosine: " +
-				bestCosine.toFixed(4) +
-				" | Scope minimum: " +
-				MIN_SCOPE_SIMILARITY.toFixed(2) +
-				correctionSummary,
+				"OUT OF SCOPE: no FAQ-domain keyword was found and the best FAQ similarity (" +
+				bestCosine.toFixed(4) + ") was below the scope threshold (" +
+				MIN_SCOPE_SIMILARITY.toFixed(2) + ")." + correctionSummary,
 				candidates
 			);
-
 			addMessage(OUT_OF_SCOPE_MESSAGE);
-			setStatus("Question appears to be outside The Clean Divorce scope.", "ready");
+			setStatus("Question appears to be outside The Clean Divorce FAQ scope.", "ready");
 			return;
 		}
 
-		// PRIORITY 6: Cross-Encoder reranking.
-
 		await loadCrossEncoder();
-
-		setStatus("Re-ranking the closest approved FAQ matches...", "busy");
-
-		const rankedCandidates = await rerankCandidates(
-			matchingQuestion,
-			candidates
-		);
-
+		setStatus("Re-ranking the closest approved FAQ questions...", "busy");
+		const rankedCandidates = await rerankCandidates(matchingQuestion, candidates);
 		const bestMatch = rankedCandidates[0];
 
-		const passesFaqSimilarity =
-			bestMatch.cosine >= MIN_FAQ_COSINE_SCORE;
-
-		const passesCrossEncoder =
-			bestMatch.crossScore >= CROSS_ENCODER_SCORE_THRESHOLD;
-
-		const accepted =
-			passesFaqSimilarity && passesCrossEncoder;
+		const passesFaqSimilarity = bestMatch.cosine >= MIN_FAQ_COSINE_SCORE;
+		const passesCrossEncoder = bestMatch.crossScore >= CROSS_ENCODER_SCORE_THRESHOLD;
+		const accepted = passesFaqSimilarity && passesCrossEncoder;
 
 		showDebug(
-			"IN SCOPE | Domain keyword: " +
-			(hasDomainKeyword ? "yes" : "no") +
-			" | Best cosine: " +
-			bestCosine.toFixed(4) +
-			" | FAQ cosine minimum: " +
-			MIN_FAQ_COSINE_SCORE.toFixed(2) +
-			" | Selected: " +
-			bestMatch.faq.id +
-			" | Matched wording: " +
-			bestMatch.matchedQuestion +
-			" | Cross-Encoder score: " +
-			bestMatch.crossScore.toFixed(4) +
-			" | Cross-Encoder threshold: " +
-			CROSS_ENCODER_SCORE_THRESHOLD.toFixed(2) +
-			" | Decision: " +
-			(accepted ? "ACCEPTED" : "FAQ NOT FOUND") +
+			"IN SCOPE | Domain keyword: " + (hasDomainKeyword ? "yes" : "no") +
+			" | Best cosine: " + bestCosine.toFixed(4) +
+			" | FAQ cosine minimum: " + MIN_FAQ_COSINE_SCORE.toFixed(2) +
+			" | Selected: " + bestMatch.faq.id +
+			" | Cross-Encoder threshold: " + CROSS_ENCODER_SCORE_THRESHOLD.toFixed(2) +
+			" | Decision: " + (accepted ? "ACCEPTED" : "FAQ NOT FOUND") +
 			correctionSummary,
 			rankedCandidates
 		);
 
-		// Always return the ORIGINAL approved answer from faqs.json.
-
 		if (accepted) {
-			addMessage(bestMatch.faq.answer);
+			// Render the unchanged approved answer with separate hover definitions.
+			addFaqAnswerMessage(bestMatch.faq);
 			setStatus("An approved FAQ answer was returned.", "ready");
 		} else {
 			addMessage(FAQ_NOT_FOUND_MESSAGE);
-			setStatus("No candidate passed the acceptance thresholds.", "ready");
+			setStatus("No candidate passed the FAQ matching thresholds.", "ready");
 		}
-
 	} catch (error) {
 		console.error("TCD FAQ assistant error:", error);
-
-		showDebug(
-			"MODEL ERROR: " +
-			(error?.message || String(error)) +
-			". No FAQ answer was returned." +
-			correctionSummary
-		);
-
+		showDebug("MODEL ERROR: " + (error?.message || String(error)) + ". No FAQ answer was returned." + correctionSummary);
 		addMessage(MODEL_ERROR_MESSAGE);
 		setStatus("A model failed to load or run. Check the browser console.", "error");
 	}
 }
 
-
-// ============================================================
-// FORM SUBMISSION
-// ============================================================
-
+// ---------------------------------------------------------------------------
+// SECTION 9 — USER INTERACTION AND APPLICATION STARTUP
+// ---------------------------------------------------------------------------
+// Submit handler: prevent page reload, display the user's message, lock the
+// input while processing, and restore the input when processing has finished.
 async function handleSubmit(event) {
 	event.preventDefault();
-
 	const question = elements.input.value.trim();
-
 	if (!question || isProcessing) return;
 
 	addMessage(question, "user");
 	elements.input.value = "";
-
 	isProcessing = true;
 	elements.send.disabled = true;
 	elements.input.disabled = true;
@@ -1124,75 +897,44 @@ async function handleSubmit(event) {
 	}
 }
 
-
-// ============================================================
-// QUICK QUESTIONS
-// ============================================================
-
+// Put the selected example question into the input; the user still chooses
+// when to submit it.
 function handleQuickQuestionClick(event) {
-	const button = event.target.closest("button");
-
+	const button = event.target.closest?.("button");
 	if (!button) return;
-
 	elements.input.value = button.textContent.trim();
 	elements.input.focus();
 }
 
-
-// ============================================================
-// DEBUG MODE
-// ============================================================
-
+// Show or hide internal matching diagnostics without changing answer selection.
 function handleDebugToggle() {
-	elements.debugPanel.classList.toggle(
-		"visible",
-		elements.debugCheckbox.checked
-	);
-
+	elements.debugPanel.classList.toggle("visible", elements.debugCheckbox.checked);
 	renderDebug();
 }
 
-
-// ============================================================
-// INITIALIZATION
-// ============================================================
-
+// Register event handlers, install glossary styling, and load approved FAQ data.
+// AI models are intentionally not downloaded during startup.
 async function initialize() {
-	// Register event handlers before loading FAQ data.
+	// Inject tooltip styles before any FAQ answer is shown.
+	installFaqGlossaryStyles();
+
+	// Register chat handlers before loading FAQ data. Local commands remain usable
+	// even when the FAQ JSON file or remote AI library is unavailable.
 	elements.form.addEventListener("submit", handleSubmit);
-
-	elements.quickQuestions.addEventListener(
-		"click",
-		handleQuickQuestionClick
-	);
-
-	elements.debugCheckbox.addEventListener(
-		"change",
-		handleDebugToggle
-	);
+	elements.quickQuestions.addEventListener("click", handleQuickQuestionClick);
+	elements.debugCheckbox.addEventListener("change", handleDebugToggle);
 
 	try {
 		await loadFaqData();
-
 		setStatus(
-			faqItems.length +
-			" approved FAQ entries loaded. Alternative phrasings are ready for matching.",
+			faqItems.length + " approved FAQ entries loaded. AI models load only when FAQ matching is needed.",
 			"ready"
 		);
-
 	} catch (error) {
 		faqLoadError = error;
-
 		console.error("TCD FAQ data error:", error);
-
-		setStatus(
-			"FAQ data could not be loaded. Local help and safety commands are still available.",
-			"error"
-		);
-
-		addMessage(
-			'The approved FAQ file could not be loaded. You can still type "help" to see available topics.'
-		);
+		setStatus("FAQ data could not be loaded. Local help and safety commands are still available.", "error");
+		addMessage("The approved FAQ file could not be loaded. You can still type \"help\" to see available topics.");
 	}
 }
 
